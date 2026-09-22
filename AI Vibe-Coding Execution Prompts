@@ -1,0 +1,83 @@
+Phase 1: Zero-Knowledge Circuit Engineering
+Prompt your agent to create the Circom cryptographic circuits.
+
+PROMPT 1: CIRCUIT DESIGN
+System: You are an expert Zero-Knowledge Cryptography Engineer.
+
+Task: Write a Circom 2.1 circuit named `age_verifier.circom`.
+
+Requirements:
+1. Inputs:
+   - Private Inputs: `birthYear` (integer), `userSecretKey` (field element)
+   - Public Inputs: `currentYear` (integer), `ageLimit` (integer, e.g., 18), `sessionNonce` (field element)
+2. Constraints:
+   - Calculate age = `currentYear - birthYear`.
+   - Use Circomlib's `GreaterEqThan(16)` template to enforce `age >= ageLimit`.
+   - Compute a nullifier using `Poseidon(userSecretKey, sessionNonce)` to bind the proof to the session and prevent replay attacks.
+3. Outputs:
+   - Public output: `nullifier`
+4. Write a compilation script `compile_circuit.sh` that compiles the circuit, generates R1CS, downloads the BN254 Powers of Tau, generates a final Groth16 zkey, and exports the `verification_key.json`.
+
+
+Phase 2: Mopro Engine Integration & Native Bindings
+Prompt your agent to bridge the Circom circuits to native C++/Rust mobile bindings using Mopro.
+
+PROMPT 2: NATIVE BINDINGS WITH MOPRO
+System: You are a Mobile Rust & Cryptography Integration Specialist.
+
+Task: Set up Mopro to build iOS and Android native proving libraries for our Circom circuit.
+
+Requirements:
+1. Initialize a Rust workspace configured with `mopro-ffi` dependencies.
+2. Place our compiled `age_verifier.r1cs` and `age_verifier_final.zkey` in the Mopro asset directory.
+3. Configure `mopro.toml` to build for target platforms (iOS UniFFI framework and Android NDK JNI libs).
+4. Create a Rust wrapper function `generate_age_proof(birth_year, user_secret, current_year, age_limit, session_nonce)` that returns a JSON string containing `{ proof, public_inputs }`.
+5. Expose a verification function `verify_age_proof(proof_json, verification_key)` that evaluates the proof natively on-device.
+6. Provide build scripts `build_mobile.sh` using `mopro-cli` to compile the native bindings.
+
+Phase 3: Mobile UI & Payload Optimization
+Prompt your agent to build the React Native / Flutter user interface and QR codec.
+
+PROMPT 3: MOBILE INTERFACE AND QR HANDSHAKE
+System: You are a Lead Cross-Platform Mobile Engineer.
+
+Task: Build the mobile app shell in React Native/Flutter that interfaces with our generated Mopro native bindings.
+
+Requirements:
+1. UI Screens:
+   - `VaultScreen`: Initialize local identity credentials (Mock setup for testing: DOB = 2000-01-01). Secure secrets using Encrypted Storage.
+   - `ProverScreen`: 
+     * Select proof type ("Age > 18").
+     * Fetch `currentYear` automatically.
+     * Accept a `sessionNonce` scanned from the Verifier.
+     * Invoke native Mopro proving function.
+     * Display a high-density dynamic QR code containing the compressed payload.
+   - `VerifierScreen`:
+     * Generate dynamic `sessionNonce` and display initial request QR.
+     * Launch Camera view using React Native Vision Camera / Mobile Scanner.
+     * Parse incoming scanned QR code payload, extract proof + public inputs.
+     * Run local Mopro `verify_age_proof`.
+     * Display a success/failure result card.
+2. QR Code Payload Optimization:
+   - Implement a custom encoder module `qrCodec.ts` that compresses the Groth16 Proof (A, B, C points on BN254) and public inputs using Base85 encoding to keep the QR payload minimal and easily scannable.
+
+
+Phase 4: Benchmarking Suite & Paper Data Collector
+Prompt your agent to write a performance collector to generate dataset metrics for your final year paper.
+
+
+PROMPT 4: BENCHMARKING & METRICS ENGINE
+System: You are a Performance Benchmarking Specialist.
+
+Task: Build an automated benchmarking module inside the mobile app to capture research-grade performance metrics.
+
+Requirements:
+1. Create a `BenchmarkRunner` module that automatically runs proof generation 50 times in a loop.
+2. Measure and log:
+   - Witness Generation Time (ms)
+   - Proof Generation Time (ms)
+   - Verification Time (ms)
+   - Payload Size in Bytes (Raw JSON vs. Base85 Compressed)
+   - Peak Memory Usage (MB) during proof execution
+3. Export these metrics to a downloadable `benchmark_results.csv` file on the mobile device storage.
+4. Render a UI screen `BenchmarkDashboard` displaying real-time average execution graphs for iOS and Android hardware.
