@@ -2,8 +2,122 @@ import 'package:flutter/material.dart';
 import '../core/native_bridge.dart';
 import '../core/qr_codec.dart';
 import '../core/vault_service.dart';
+import '../models/verifiable_credential.dart';
 import '../widgets/qr_display.dart';
 import '../widgets/qr_scanner_view.dart';
+
+/// A preset real-world verification profile for the generic multi-predicate
+/// engine. Each template binds a vault credential to a `generic_verifier.circom`
+/// predicate mode; [policyId] matches the Verifier's `VerificationPolicy.id`.
+class ProofTemplate {
+  /// Stable predicate id shared with the Verifier's policy selector.
+  final String policyId;
+
+  /// Display name of the template.
+  final String label;
+
+  /// Real-world scenario this template targets.
+  final String scenario;
+
+  /// DID of the credential issuer this predicate is proven from.
+  final String issuerId;
+
+  /// Human readable issuer category shown in the UI.
+  final String issuerLabel;
+
+  /// Credential type expected inside the vault.
+  final String credentialLabel;
+
+  /// `generic_verifier.circom` predicate mode (1 = threshold, 2 = set, 3 = derived/age).
+  final int predicateMode;
+
+  /// `credentialSubject` attribute evaluated by the circuit.
+  final String attributeKey;
+
+  /// Mode 1: minimum acceptable value. Mode 3: minimum age.
+  final int thresholdA;
+
+  /// Mode 3: reference value (current year, injected at proof time). Unused otherwise.
+  final int thresholdB;
+
+  /// Mode 2: whitelisted institution / jurisdiction codes (5 elements).
+  final List<int> allowedSet;
+
+  /// Zero-knowledge claim transported with the proof payload.
+  final String claim;
+
+  const ProofTemplate({
+    required this.policyId,
+    required this.label,
+    required this.scenario,
+    required this.issuerId,
+    required this.issuerLabel,
+    required this.credentialLabel,
+    required this.predicateMode,
+    required this.attributeKey,
+    required this.thresholdA,
+    this.thresholdB = 0,
+    this.allowedSet = const [0, 0, 0, 0, 0],
+    required this.claim,
+  });
+}
+
+/// Preset proof templates covering the four verification profiles.
+const List<ProofTemplate> kProofTemplates = [
+  ProofTemplate(
+    policyId: 'age_18',
+    label: 'Age >= 18',
+    scenario: 'Nightlife, hospitality & age-restricted venues',
+    issuerId: 'did:zkmatch:gov-uidai',
+    issuerLabel: 'Government Identity (UIDAI / Passport)',
+    credentialLabel: 'National Identity Credential',
+    predicateMode: 3,
+    attributeKey: 'birthYear',
+    thresholdA: 18,
+    claim: 'Age >= 18 verified with zero DOB disclosed',
+  ),
+  ProofTemplate(
+    policyId: 'income_solvency',
+    label: 'Income Solvency',
+    scenario: 'Apartment rentals & loan pre-qualification',
+    issuerId: 'did:zkmatch:bank-apex',
+    issuerLabel: 'Financial Institution (Bank / Credit Bureau)',
+    credentialLabel: 'Financial Solvency Credential',
+    predicateMode: 1,
+    attributeKey: 'monthlyIncome',
+    thresholdA: 4000,
+    claim:
+        'Monthly income >= \$4,000/mo verified with zero bank details disclosed',
+  ),
+  ProofTemplate(
+    policyId: 'student_status',
+    label: 'Student Status',
+    scenario: 'Student discounts, campus perks & software access',
+    issuerId: 'did:zkmatch:university-pes',
+    issuerLabel: 'University Academic Registry',
+    credentialLabel: 'University Student Credential',
+    predicateMode: 2,
+    attributeKey: 'institutionId',
+    thresholdA: 0,
+    allowedSet: [1042, 2087, 3311, 4509, 5120],
+    claim:
+        'Active enrollment at an accredited institution verified with zero student ID disclosed',
+  ),
+  ProofTemplate(
+    policyId: 'regional_residency',
+    label: 'Regional Residency',
+    scenario: 'Civic subsidies, regional voting & public transport',
+    issuerId: 'did:zkmatch:municipal-bda',
+    issuerLabel: 'Municipal / Regional Authority',
+    credentialLabel: 'Civic Residency Credential',
+    predicateMode: 2,
+    attributeKey: 'jurisdictionCode',
+    thresholdA: 0,
+    allowedSet: [29, 7, 13, 22, 33],
+    claim:
+        'Eligible jurisdiction residency verified with zero address disclosed',
+  ),
+];
 
 class ProverScreen extends StatefulWidget {
   const ProverScreen({super.key});
@@ -16,9 +130,7 @@ class _ProverScreenState extends State<ProverScreen> {
   final NativeBridge _bridge = NativeBridge();
   final VaultService _vaultService = VaultService();
 
-  final String _proofType = 'Age >= 18';
-  final int _ageLimit = 18;
-  int _currentYear = DateTime.now().year;
+  ProofTemplate _selectedTemplate = kProofTemplates.first;
   String _sessionNonce = '';
   final TextEditingController _nonceController = TextEditingController();
 
@@ -31,12 +143,45 @@ class _ProverScreenState extends State<ProverScreen> {
   @override
   void initState() {
     super.initState();
-    _currentYear = DateTime.now().year;
     _sessionNonce = 'req_${DateTime.now().millisecondsSinceEpoch}';
     _nonceController.text = _sessionNonce;
   }
 
+  @override
+  void dispose() {
+    _nonceController.dispose();
+    super.dispose();
+  }
+
+  /// Maps the selected template to the `credentialSubject` attribute value.
+  int _readAttribute(VerifiableCredential credential, ProofTemplate template) {
+    if (template.attributeKey == 'birthYear') {
+      return credential.birthYear;
+    }
+    final raw = credential.credentialSubject[template.attributeKey];
+    final value = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+    if (value == null) {
+      throw Exception(
+          'Credential attribute "${template.attributeKey}" missing — the '
+          '${template.credentialLabel} cannot satisfy the ${template.label} predicate.');
+    }
+    return value;
+  }
+
+  /// Converts the credential expiration date to Unix seconds (circuit units).
+  int _expirySeconds(VerifiableCredential credential) {
+    final parsed = DateTime.tryParse(credential.expirationDate);
+    if (parsed == null) {
+      return DateTime.now()
+              .add(const Duration(days: 3650))
+              .millisecondsSinceEpoch ~/
+          1000;
+    }
+    return parsed.millisecondsSinceEpoch ~/ 1000;
+  }
+
   Future<void> _generateProof() async {
+    final template = _selectedTemplate;
     setState(() {
       _isProving = true;
       _errorMessage = null;
@@ -44,18 +189,49 @@ class _ProverScreenState extends State<ProverScreen> {
 
     final stopwatch = Stopwatch()..start();
     try {
-      final birthYear = await _vaultService.getBirthYear();
+      // Ensure the default multi-sector credentials are seeded in the vault.
+      await _vaultService.initializeDefaultIdentity();
+      final credentials = await _vaultService.getCredentials();
+
+      VerifiableCredential? credential;
+      for (final vc in credentials) {
+        if (vc.issuerId == template.issuerId) {
+          credential = vc;
+          break;
+        }
+      }
+      if (credential == null) {
+        throw Exception(
+            'No ${template.credentialLabel} found in the vault for ${template.issuerId}. '
+            'Import the credential before proving "${template.label}".');
+      }
+
+      final attributeValue = _readAttribute(credential, template);
+      final credentialExpiry = _expirySeconds(credential);
       final userSecret = await _vaultService.getUserSecretKey();
       final nonce = _nonceController.text.trim().isEmpty
           ? _sessionNonce
           : _nonceController.text.trim();
+      final currentTimestamp =
+          DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // Mode 3 (age derivation) uses the current year as the reference value.
+      final thresholdB = template.predicateMode == 3
+          ? DateTime.now().year
+          : template.thresholdB;
 
-      final payload = await _bridge.generateAgeProof(
-        birthYear: birthYear,
+      final payload = await _bridge.generatePredicateProof(
+        predicateMode: template.predicateMode,
+        attributeValue: attributeValue,
         userSecret: userSecret,
-        currentYear: _currentYear,
-        ageLimit: _ageLimit,
+        credentialExpiry: credentialExpiry,
+        thresholdA: template.thresholdA,
+        thresholdB: thresholdB,
+        allowedSet: template.allowedSet,
+        currentTimestamp: currentTimestamp,
         sessionNonce: nonce,
+        issuerReference: template.issuerId,
+        predicateType: template.policyId,
+        predicateClaim: template.claim,
       );
 
       stopwatch.stop();
@@ -73,6 +249,32 @@ class _ProverScreenState extends State<ProverScreen> {
       setState(() {
         _isProving = false;
       });
+    }
+  }
+
+  String _describePredicate(ProofTemplate template) {
+    switch (template.predicateMode) {
+      case 1:
+        return 'attributeValue >= ${template.thresholdA}';
+      case 2:
+        return 'attributeValue ∈ {${template.allowedSet.join(', ')}}';
+      case 3:
+        return 'currentYear - birthYear >= ${template.thresholdA}';
+      default:
+        return 'unsupported mode';
+    }
+  }
+
+  String _modeLabel(ProofTemplate template) {
+    switch (template.predicateMode) {
+      case 1:
+        return 'Mode 1 · Threshold / Range';
+      case 2:
+        return 'Mode 2 · Set Membership';
+      case 3:
+        return 'Mode 3 · Derived (Age)';
+      default:
+        return 'Mode ${template.predicateMode}';
     }
   }
 
@@ -96,6 +298,8 @@ class _ProverScreenState extends State<ProverScreen> {
       );
     }
 
+    final template = _selectedTemplate;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('ZK Prover'),
@@ -114,7 +318,7 @@ class _ProverScreenState extends State<ProverScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'SELECTED PROOF',
+                      'PROOF TEMPLATE',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -123,22 +327,82 @@ class _ProverScreenState extends State<ProverScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
+                    DropdownButtonFormField<ProofTemplate>(
+                      initialValue: _selectedTemplate,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
+                      ),
+                      items: kProofTemplates
+                          .map((t) => DropdownMenuItem(
+                                value: t,
+                                child: Text(
+                                  '${t.label} — ${t.scenario}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedTemplate = val;
+                            _encodedPayload = null;
+                            _errorMessage = null;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          _proofType,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.indigo,
+                        Expanded(
+                          child: Text(
+                            template.label,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.indigo,
+                            ),
                           ),
                         ),
                         Chip(
-                          label: Text('Current Year: $_currentYear'),
+                          label: Text(_modeLabel(template)),
                           backgroundColor: Colors.indigo.shade50,
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Predicate: ${_describePredicate(template)}',
+                            style: const TextStyle(
+                                fontSize: 12, fontFamily: 'monospace'),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Credential source: ${template.credentialLabel} (${template.issuerId})',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade700),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Proves "${template.claim}".',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -214,7 +478,7 @@ class _ProverScreenState extends State<ProverScreen> {
                 ),
               QrDisplay(
                 data: _encodedPayload!,
-                title: 'zk-MatchID Age Proof',
+                title: 'zk-MatchID ${template.label} Proof',
                 subtitle: 'Present this QR to Verifier offline',
               ),
             ],

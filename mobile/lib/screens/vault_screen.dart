@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/vault_service.dart';
+import '../models/verifiable_credential.dart';
 
 class VaultScreen extends StatefulWidget {
   const VaultScreen({super.key});
@@ -13,6 +14,7 @@ class _VaultScreenState extends State<VaultScreen> {
   String _dob = '';
   int _birthYear = 2000;
   String _secretKey = '';
+  List<VerifiableCredential> _credentials = [];
   bool _isLoading = true;
 
   @override
@@ -26,11 +28,13 @@ class _VaultScreenState extends State<VaultScreen> {
     final dob = await _vaultService.getDobString();
     final year = await _vaultService.getBirthYear();
     final secret = await _vaultService.getUserSecretKey();
+    final creds = await _vaultService.getCredentials();
 
     setState(() {
       _dob = dob;
       _birthYear = year;
       _secretKey = secret;
+      _credentials = creds;
       _isLoading = false;
     });
   }
@@ -119,7 +123,7 @@ class _VaultScreenState extends State<VaultScreen> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  'Hardware-encrypted credentials stored strictly on-device',
+                                  'Hardware-encrypted storage for Verifiable Credentials & ZK keys',
                                   style: TextStyle(
                                       fontSize: 12, color: Colors.grey),
                                 ),
@@ -130,13 +134,103 @@ class _VaultScreenState extends State<VaultScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   const Text(
-                    'IDENTITY CREDENTIALS',
+                    'VERIFIABLE CREDENTIALS (FROM TRUSTED ISSUERS)',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+                      letterSpacing: 1.1,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_credentials.isEmpty) ...[
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text(
+                          'No credentials found.',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    ..._credentials.map((vc) => Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          child: ExpansionTile(
+                            leading: Icon(
+                              vc.type.contains('NationalIdentityCredential')
+                                  ? Icons.account_box
+                                  : Icons.school,
+                              color: Colors.indigo,
+                              size: 32,
+                            ),
+                            title: Text(
+                              vc.type.last,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              'Issuer: ${vc.issuerName}',
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey.shade700),
+                            ),
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Divider(),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.verified,
+                                            size: 16, color: Colors.green),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Cryptographically Signed (${vc.signatureType})',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.green.shade800,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Issuer DID: ${vc.issuerId}',
+                                      style: const TextStyle(
+                                          fontSize: 11, fontFamily: 'monospace'),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Birth Year: ${vc.birthYear}',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Valid Until: ${vc.expirationDate.split('T').first}',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                  ],
+                  const SizedBox(height: 16),
+                  const Text(
+                    'IDENTITY VAULT SECRETS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.1,
                       color: Colors.grey,
                     ),
                   ),
@@ -146,8 +240,8 @@ class _VaultScreenState extends State<VaultScreen> {
                         borderRadius: BorderRadius.circular(12)),
                     child: ListTile(
                       leading: const Icon(Icons.cake, color: Colors.indigo),
-                      title: const Text('Date of Birth (Mock)'),
-                      subtitle: Text('$_dob (Birth Year: $_birthYear)'),
+                      title: const Text('Date of Birth (Active Subject)'),
+                      subtitle: Text('$_dob (Year: $_birthYear)'),
                       trailing: IconButton(
                         icon: const Icon(Icons.edit, size: 20),
                         onPressed: _editDob,
@@ -159,7 +253,7 @@ class _VaultScreenState extends State<VaultScreen> {
                         borderRadius: BorderRadius.circular(12)),
                     child: ListTile(
                       leading: const Icon(Icons.key, color: Colors.indigo),
-                      title: const Text('User Secret Key'),
+                      title: const Text('User Secret Key (ZK Seed)'),
                       subtitle: Text(
                         _secretKey,
                         maxLines: 1,
@@ -168,7 +262,7 @@ class _VaultScreenState extends State<VaultScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -184,7 +278,7 @@ class _VaultScreenState extends State<VaultScreen> {
                         const SizedBox(width: 12),
                         const Expanded(
                           child: Text(
-                            'Zero-Knowledge Guarantee: Your raw Date of Birth and Secret Key are NEVER transmitted over the air or visible in QR codes.',
+                            'Zero-Knowledge Guarantee: Raw credential attributes and signatures never leave your device. The verifier only evaluates zero-knowledge proofs.',
                             style: TextStyle(fontSize: 13, height: 1.4),
                           ),
                         ),

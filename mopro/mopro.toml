@@ -14,7 +14,7 @@ ndk_version = "25.2.9519653"
 architectures = ["aarch64-apple-ios", "aarch64-apple-ios-sim", "x86_64-apple-ios"]
 
 [circuit]
-name = "age_verifier"
-r1cs = "assets/age_verifier.r1cs"
-zkey = "assets/age_verifier_final.zkey"
+name = "generic_verifier"
+r1cs = "assets/generic_verifier.r1cs"
+zkey = "assets/generic_verifier_final.zkey"
 vkey = "assets/verification_key.json"

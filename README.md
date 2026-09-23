@@ -1,32 +1,59 @@
-# zk-MatchID: Offline-First Zero-Knowledge Mobile Authentication
+# zk-MatchID: End-to-End Privacy-Preserving Identity Verification
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.35.1-02569B?logo=flutter)](https://flutter.dev)
 [![Circom](https://img.shields.io/badge/Circom-2.1+-yellow)](https://docs.circom.io)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.20-363636?logo=solidity)](https://soliditylang.org/)
 [![Groth16](https://img.shields.io/badge/Cryptography-Groth16_BN254-blueviolet)](https://eprint.iacr.org/2016/260)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**zk-MatchID** is a peer-to-peer (P2P), offline-first mobile mutual authentication system. It allows two individuals to perform two-way verification (e.g., Age $\ge$ 18 proof and credential ownership) without transmitting or revealing any personally identifiable information (PII) such as full name, date of birth, or national ID numbers.
+> *"Prove what's needed. Keep the rest private."*
+
+**zk-MatchID** is an offline-first, peer-to-peer (P2P) zero-knowledge mutual identity verification platform. It allows individuals to prove identity predicates (e.g., "Age $\ge$ 18" or credential status) using digitally signed Verifiable Credentials (VCs) issued by trusted authorities, without disclosing full name, date of birth, or any personally identifiable information (PII).
 
 ---
 
-## Key Features
+## 4-Layer Architecture
 
-1. **Local Identity Vault:** Hardware-encrypted identity credentials stored using native mobile security (KeyStore/Keychain) via `VaultService`.
-2. **On-Device Proof Generation:** Native Groth16 zero-knowledge proof generation over the BN254 curve executing in $< 2.0$ seconds on mobile hardware.
-3. **High-Density Dynamic QR Encoding:** Ascii85 (Base85) payload compression for Groth16 proof coordinates and public inputs.
-4. **Offline QR Verification:** Instant local cryptographic evaluation without cellular data or internet connectivity.
-5. **Anti-Replay Handshake Protocol:** Challenge-response session nonce validation preventing camera recording replay attacks.
-6. **Automated Research Benchmarking Suite:** 50-cycle benchmark runner logging witness time, proof latency, verification time, payload sizes, and RAM usage with direct export to `benchmark_results.csv`.
+```
+┌────────────────────────────────────────────────────────┐
+│ 1. Trusted Issuers (Identity Providers)                │
+│    Govt (UIDAI/Passport), Universities, Employers      │
+│    • Digitally Signed Verifiable Credentials (VCs)     │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────┐
+│ 2. Blockchain Layer - Trust & Integrity (No PII)       │
+│    • IssuerRegistry.sol (Public keys & status)         │
+│    • CredentialSchemaRegistry.sol (Schema definitions) │
+│    • RevocationRegistry.sol (CRLs & Merkle roots)      │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+┌──────────────────────────▼─────────────────────────────┐
+│ 3. User Mobile App (Prover - Flutter & Mopro)          │
+│    • Identity Vault (Biometric KeyStore & VCs)         │
+│    • On-Device Groth16 Prover (BN254 curve, < 2.0s)    │
+│    • Dynamic QR Codec (Ascii85 / Base85 Compression)   │
+└──────────────────────────┬─────────────────────────────┘
+                           │  (P2P Offline Dynamic QR)
+┌──────────────────────────▼─────────────────────────────┐
+│ 4. Verifier (Relying Party - Venue/Event/Service)      │
+│    • Ephemeral Challenge Generator (Nonce QR + TTL)    │
+│    • Offline Scanner & Groth16 Pairing Verifier        │
+│    • Policy Match, Issuer & Anti-Replay Checks         │
+│    • Result Card: "VERIFIED: Income Solvency Met ✓"    │
+└────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Project Structure
+## Repository Structure
 
 ```
 zk-MatchID/
 ├── circuits/                         # Phase 1: Circom 2.1 ZK Circuit Layer
 │   ├── src/
-│   │   └── age_verifier.circom       # Core Circom circuit (birthYear, ageLimit, Poseidon nullifier)
+│   │   ├── generic_verifier.circom   # Multi-predicate circuit (threshold, set membership, expiry, nullifier)
+│   │   └── age_verifier.circom       # Legacy single-purpose baseline circuit
 │   ├── scripts/
 │   │   ├── compile_circuit.sh        # Bash compilation & Powers of Tau trusted setup
 │   │   └── compile_circuit.ps1       # PowerShell compilation helper for Windows
@@ -36,32 +63,53 @@ zk-MatchID/
 │   └── .gitignore
 │
 ├── mopro/                            # Phase 2: Mopro Native Proving Engine (Rust)
-│   ├── Cargo.toml                    # Cargo manifest with mopro-ffi & arkworks
+│   ├── Cargo.toml                    # Cargo manifest with mopro-ffi, arkworks, uniffi
 │   ├── mopro.toml                    # Mopro target config for Android (NDK) & iOS
 │   ├── src/
 │   │   ├── lib.rs                    # UniFFI and C-ABI exports for Dart FFI
 │   │   ├── prover.rs                 # Native Groth16 witness & proof generation (< 2.0s)
 │   │   └── verifier.rs               # Offline Groth16 pairing verifier
-│   ├── assets/                       # Output directory for compiled r1cs, zkey, and vkey
+│   ├── assets/                       # Destination for compiled r1cs, zkey, and vkey
 │   │   └── .gitkeep
 │   ├── scripts/
 │   │   ├── build_mobile.sh           # Shell script to compile Android .so & iOS framework
 │   │   └── build_mobile.ps1          # Windows build helper
 │   └── .gitignore
 │
-├── mobile/                           # Phase 3 & 4: Mobile Application (Flutter)
+├── contracts/                        # Phase 3: Blockchain Trust Layer (Solidity)
+│   ├── contracts/
+│   │   ├── IssuerRegistry.sol        # Authorized identity providers & public keys
+│   │   ├── CredentialSchemaRegistry.sol # Standard credential schema definitions
+│   │   └── RevocationRegistry.sol    # Credential revocation status & Merkle roots
+│   ├── hardhat.config.js             # Hardhat EVM toolchain configuration
+│   ├── package.json
+│   └── README.md
+│
+├── issuer/                           # Phase 4: Trusted Issuer Backend & Mock Service
+│   ├── src/
+│   │   └── issuer_service.js         # Service to generate & sign Verifiable Credentials
+│   ├── sample_credentials/
+│   │   ├── government_id_vc.json     # Government ID credential (Age predicate)
+│   │   ├── financial_solvency_vc.json # Financial credential (Income predicate)
+│   │   ├── university_student_vc.json # University Student credential (Set membership)
+│   │   └── civic_residency_vc.json   # Municipal Residency credential (Set membership)
+│   ├── package.json
+│   └── README.md
+│
+├── mobile/                           # Phase 5 & 6: Mobile Application (Flutter)
 │   ├── lib/
-│   │   ├── main.dart                 # Application entrypoint with navigation tabs
+│   │   ├── main.dart                 # App entrypoint with navigation tabs & Material 3 theme
 │   │   ├── core/
 │   │   │   ├── native_bridge.dart    # Dart FFI bridge to Mopro Rust shared library
 │   │   │   ├── qr_codec.dart         # Base85 Groth16 proof & public input compression
 │   │   │   ├── nonce_manager.dart    # Interactive anti-replay session nonce manager
-│   │   │   └── vault_service.dart    # Biometric / encrypted credential vault
+│   │   │   ├── vault_service.dart    # Biometric / encrypted credential vault
+│   │   │   └── blockchain_service.dart # On-chain issuer & revocation query/cache
 │   │   ├── screens/
-│   │   │   ├── vault_screen.dart     # Identity Vault (biometric setup & mock DOB)
-│   │   │   ├── prover_screen.dart    # Age >= 18 prover & high-density QR generator
-│   │   │   ├── verifier_screen.dart  # Dynamic nonce QR & offline camera scanner
-│   │   │   └── benchmark_dashboard.dart # Performance dashboard with real-time graphs
+│   │   │   ├── vault_screen.dart     # Identity Vault (VC list, biometric lock, ZK key)
+│   │   │   ├── prover_screen.dart    # Proof template selection (Age/Income/Student/Residency)
+│   │   │   ├── verifier_screen.dart  # Policy selector, challenge QR, camera scanner
+│   │   │   └── benchmark_dashboard.dart # Performance metrics & real-time graphs
 │   │   ├── widgets/
 │   │   │   ├── qr_display.dart       # High-density dynamic QR renderer
 │   │   │   ├── qr_scanner_view.dart  # Offline camera scanner view
@@ -70,14 +118,16 @@ zk-MatchID/
 │   │   │   ├── benchmark_runner.dart # 50-cycle automated benchmark runner
 │   │   │   └── metrics_exporter.dart # CSV export to mobile device storage
 │   │   └── models/
-│   │       ├── proof_payload.dart    # Groth16 proof & public input data structures
+│   │       ├── verifiable_credential.dart # W3C Verifiable Credential data model
+│   │       ├── proof_payload.dart    # Groth16 proof with predicateType & TTL
+│   │       ├── verification_policy.dart # Shared prover templates & verifier policies
 │   │       └── benchmark_metric.dart # Metric data point model
-│   ├── pubspec.yaml                  # Flutter dependencies (qr_flutter, mobile_scanner, ffi, etc.)
+│   ├── pubspec.yaml                  # Flutter dependencies
 │   └── test/
 │       └── widget_test.dart          # Widget integration tests
 │
 ├── docs/                             # System Documentation
-│   ├── architecture.md               # Cryptographic design & Groth16 pairing specs
+│   ├── architecture.md               # End-to-end architecture & Groth16 pairing specs
 │   └── handshake_protocol.md         # Interactive anti-replay QR handshake specs
 │
 ├── PRD.md                            # Product Requirements Document
@@ -88,45 +138,53 @@ zk-MatchID/
 
 ---
 
+## 6-Step End-to-End Flow
+
+1. **Issuer Onboards:** Issuer registers public key and credential schema on the Blockchain Layer (`IssuerRegistry.sol`).
+2. **Issue Credential:** Issuer signs credential and delivers it to the user (`issuer_service.js`).
+3. **Store in Vault:** User securely stores credential in encrypted mobile vault (`VaultScreen`).
+4. **Verifier Challenge:** Verifier selects the required policy (Age / Income / Student / Residency), generates an ephemeral session nonce, and shows the QR code (`VerifierScreen`).
+5. **Generate Proof:** User selects a proof template and generates the multi-predicate ZK proof on-device bound to the verifier nonce, displaying the QR (`ProverScreen`).
+6. **Verify:** Verifier scans QR, enforces the policy match, and checks proof, nonce, and issuer status offline, displaying the policy result: `"VERIFIED: Income Solvency Met ✓"`.
+
+---
+
 ## Quickstart Guide
 
-### 1. Circuit Layer (`circuits/`)
+### 1. Smart Contracts (`contracts/`)
+```bash
+cd contracts
+npm install
+npx hardhat compile
+```
+
+### 2. Issuer Service (`issuer/`)
+```bash
+cd issuer
+npm run issue
+```
+
+### 3. ZK Circuits (`circuits/`)
 ```bash
 cd circuits
 npm install
-
-# Compile circuit and run trusted setup:
 npm run compile           # Linux / macOS / WSL
 # OR:
 npm run compile:windows   # Windows PowerShell
 ```
 
-### 2. Mopro Engine Layer (`mopro/`)
+### 4. Mopro Mobile Bindings (`mopro/`)
 ```bash
 cd mopro
-
-# Compile mobile native libraries:
 bash scripts/build_mobile.sh
 # OR:
 powershell -ExecutionPolicy Bypass -File scripts/build_mobile.ps1
 ```
 
-### 3. Mobile Application (`mobile/`)
+### 5. Mobile Application (`mobile/`)
 ```bash
 cd mobile
 flutter pub get
 flutter test
 flutter run
 ```
-
----
-
-## Verification & Acceptance Checklist
-
-Refer to [System Verification Checklist](file:///c:/Users/lobop/OneDrive/Desktop/PRAJWAL/SEM7/MP/System%20Verification%20Checklist):
-- [x] **Circuit Design:** Circom 2.1 circuit with `GreaterEqThan(16)` and `Poseidon` nullifier.
-- [x] **Mopro Engine:** Configured with iOS & Android targets and C-ABI / Dart FFI bindings.
-- [x] **Offline Operation:** Zero network dependency; local proving and local verification.
-- [x] **Verification Test:** Real-time Groth16 proof calculation in $< 2.0$ seconds.
-- [x] **Anti-Replay Test:** Nonce expiration and single-use enforcement in `NonceManager`.
-- [x] **Zero-Knowledge Test:** QR payload contains only elliptic curve points and public outputs—no `birthYear` or PII.
