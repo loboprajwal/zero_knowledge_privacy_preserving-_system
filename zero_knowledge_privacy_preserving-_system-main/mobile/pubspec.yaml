@@ -1,0 +1,30 @@
+name: mobile
+description: "zk-MatchID Offline-First Mobile Mutual Authentication"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  ffi: ^2.1.2
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.3
+  flutter_secure_storage: ^9.2.2
+  path_provider: ^2.1.4
+  csv: ^6.0.0
+  crypto: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/

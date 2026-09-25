@@ -39,9 +39,3 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-# Generated build files
-build/
-.gradle/
-.gradle-codex/
-**/.gradle/
-**/.gradle-codex/
